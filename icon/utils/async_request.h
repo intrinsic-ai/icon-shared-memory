@@ -1,0 +1,131 @@
+// Copyright 2026 Intrinsic Innovation LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef ICON_UTILS_ASYNC_REQUEST_H_
+#define ICON_UTILS_ASYNC_REQUEST_H_
+
+#include <concepts>
+#include <optional>
+#include <utility>
+
+#include "icon/testing/realtime_annotations.h"
+#include "icon/utils/status.h"
+#include "platform/common/buffers/rt_promise.h"
+
+namespace intrinsic::icon {
+
+// This movable request wraps a request and a promise.
+// Used as communication channel between a non-rt async call and an rt thread.
+// `RequestDataType` is the data type that should be passed from non-rt to rt.
+// `ResponseDataType` is the data type used to convey the response from rt to
+// non-rt. Both types must be movable.
+//
+// Example:
+//
+// constexpr auto kWaitTimeout = std::chrono::milliseconds(100);
+// RealtimeFutureWithData<bool> rt_job_result;
+// INTR_ASSIGN_OR_RETURN_STATUS(auto promise, rt_job_result.GetPromise());
+// AsyncRequest request(request_value, std::move(promise));
+
+// Thread rt_thread;
+// ThreadOptions rt_thread_options;
+
+// auto status = (rt_thread.Start(rt_thread_options,
+//                    [request = std::move(request)]() mutable {
+//   auto& actual_request_value = request.GetRequest();
+//   // Do fancy real time stuff.
+//   // ...
+//   request.SetResponse(true);
+// });
+// INTR_RETURN_STATUS_IF_ERROR(
+//     bool job_result,
+//     rt_job_result.WaitFor(kWaitTimeout));
+template <std::movable RequestDataType, std::movable ResponseDataType>
+class AsyncRequest {
+ public:
+  // Default construction.
+  AsyncRequest() = default;
+  // Not copy constructable nor copy assignable.
+  AsyncRequest(const AsyncRequest&) = delete;
+  AsyncRequest& operator=(const AsyncRequest&) = delete;
+  // Move constructable and move assignable.
+  AsyncRequest(AsyncRequest&&) = default;
+  AsyncRequest& operator=(AsyncRequest&&) = default;
+  // Use this constructor when no reply is needed.
+  explicit AsyncRequest(RequestDataType request)
+      : request_(std::move(request)) {}
+  // Use this constructor to specify the `request` and the `promise` on which
+  // the non-rt will wait with the corresponding future.
+  AsyncRequest(RequestDataType request,
+               RealtimePromise<ResponseDataType>&& promise)
+      : request_(std::move(request)), promise_(std::move(promise)) {}
+
+  ~AsyncRequest() = default;
+
+  // Returns the request.
+  const RequestDataType& GetRequest() const& INTRINSIC_CHECK_REALTIME_SAFE {
+    return request_;
+  }
+  // Returns a moved request. Use this function, when the request data is on the
+  // heap and you need the request somewhere else. Do not copy the request data
+  // when it is on the heap! Further calls to `GetRequest()` or
+  // `GetMovedRequest()` will return an object in an unspecified state.
+  RequestDataType&& GetMovedRequest() INTRINSIC_CHECK_REALTIME_SAFE {
+    return std::move(request_);
+  }
+
+  // Returns if the promise (or its corresponding future) has been cancelled up
+  // until now. Cancellation could still happen later.
+  bool IsCancelled() const INTRINSIC_CHECK_REALTIME_SAFE {
+    if (!promise_.has_value()) {
+      return false;
+    }
+    const auto is_cancelled = promise_->IsCancelled();
+    if (!is_cancelled.has_value()) {
+      return false;
+    }
+    return is_cancelled.value();
+  }
+
+  // Sets the return status, which will be communicated through the promise
+  // back to its corresponding future. Returns an error if setting the value
+  // on the promise fails (i.e. due to cancellation). Returns OK, if default
+  // constructed without promise.
+  RealtimeStatus SetResponse(ResponseDataType reply)
+      INTRINSIC_CHECK_REALTIME_SAFE {
+    if (!promise_.has_value()) {
+      // No need to set anything if we don't have a promise.
+      return RtOkStatus();
+    }
+    return promise_->Set(std::move(reply));
+  }
+
+  // Cancels the promise and informs the corresponding future.
+  RealtimeStatus Cancel() INTRINSIC_CHECK_REALTIME_SAFE {
+    if (!promise_.has_value()) {
+      return RtOkStatus();
+    }
+    return promise_->Cancel();
+  }
+
+ private:
+  // The request value.
+  RequestDataType request_;
+  // The promise. Optional, in case there is no need for a reply.
+  std::optional<RealtimePromise<ResponseDataType>> promise_;
+};
+
+}  // namespace intrinsic::icon
+
+#endif  // ICON_UTILS_ASYNC_REQUEST_H_

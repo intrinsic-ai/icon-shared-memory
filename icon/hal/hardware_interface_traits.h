@@ -1,0 +1,51 @@
+// Copyright 2026 Intrinsic Innovation LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     https://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef ICON_HAL_HARDWARE_INTERFACE_TRAITS_H_
+#define ICON_HAL_HARDWARE_INTERFACE_TRAITS_H_
+
+#include <type_traits>
+
+namespace intrinsic::icon {
+namespace hardware_interface_traits {
+
+// Builder functions for creating a new default-initialized hardware interface.
+// Each template specialization is ressponsible for defining a build function
+// according to their respective `*utils.h` header.
+template <class HardwareInterfaceT>
+struct BuilderFunctions : std::false_type {};
+
+// Transition struct to translate from a flatbuffer to a unique URI.
+template <class T>
+struct TypeID;
+
+// The macro belows allows to register a hardware interface to be used by a
+// hardware module. Given the type `INTERFACE_T`, it specifies a function on how
+// to construct the message via `BUILDER_FCN` as well as a unique string
+// (`TYPE_ID_STRING`) identifying the type of the message.
+#define INTRINSIC_ADD_HARDWARE_INTERFACE(INTERFACE_T, BUILDER_FCN, \
+                                         TYPE_ID_STRING)           \
+  template <>                                                      \
+  struct BuilderFunctions<INTERFACE_T> : std::true_type {          \
+    static constexpr auto kBuild = BUILDER_FCN;                    \
+  };                                                               \
+                                                                   \
+  template <>                                                      \
+  struct TypeID<INTERFACE_T> {                                     \
+    static constexpr char kTypeString[] = TYPE_ID_STRING;          \
+  };
+
+}  // namespace hardware_interface_traits
+}  // namespace intrinsic::icon
+#endif  // ICON_HAL_HARDWARE_INTERFACE_TRAITS_H_
