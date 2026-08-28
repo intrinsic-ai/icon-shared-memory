@@ -14,7 +14,7 @@
 
 """Malloc test is not implemented externally, only invoke regular cc_test."""
 
-load("//bazel:cc_macros.bzl", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_test")
 
 def cc_test_and_malloc_test(name, deps = [], local_defines = [], tags = [], **kwargs):
     cc_test(

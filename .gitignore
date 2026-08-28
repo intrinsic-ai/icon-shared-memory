@@ -1,0 +1,12 @@
+# Build artifacts
+build/
+bazel-*
+
+# Python
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/
+.cache/

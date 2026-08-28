@@ -16,6 +16,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <type_traits>
 #include <vector>
 
 #include "flatbuffers/buffer.h"
@@ -29,6 +31,44 @@
 
 namespace intrinsic_fbs {
 namespace {
+
+template <typename T>
+using decay_ptr_t =
+    std::remove_cvref_t<std::remove_pointer_t<std::remove_cvref_t<T>>>;
+
+// Compare fields of `Point` directly because FlatBuffers struct types generated
+// externally do not have `operator==` defined.
+MATCHER_P(PointEq, expected, "") {
+  // The internal `flatbuffers::Vector::Get` function returns a pointer while
+  // the external implementation returns a value. We handle both cases with the
+  // same matcher.
+  ::testing::StaticAssertTypeEq<intrinsic_fbs::Point,
+                                decay_ptr_t<expected_type>>();
+  ::testing::StaticAssertTypeEq<intrinsic_fbs::Point, decay_ptr_t<arg_type>>();
+
+  auto to_pointer = [](auto& item) {
+    if constexpr (std::is_pointer_v<std::decay_t<decltype(item)>>) {
+      return item;
+    } else {
+      return std::addressof(item);
+    }
+  };
+
+  const auto* arg_ptr = to_pointer(arg);
+  const auto* exp_ptr = to_pointer(expected);
+
+  if (arg_ptr == nullptr) {
+    *result_listener << "argument is a null pointer";
+    return false;
+  }
+  if (exp_ptr == nullptr) {
+    *result_listener << "expected parameter is a null pointer";
+    return false;
+  }
+
+  return arg_ptr->x() == exp_ptr->x() && arg_ptr->y() == exp_ptr->y() &&
+         arg_ptr->z() == exp_ptr->z();
+}
 
 TEST(FlatbufferArrayNumElementsTest, ReturnsCorrectNumElements) {
   EXPECT_EQ(FlatbufferArrayNumElements(&SegmentInfo::names),
@@ -104,16 +144,12 @@ TEST(FlatbufferUtilsTest, CopiesFlatbufferPointVector) {
   // Compare fields directly because FlatBuffers struct types generated
   // externally do not have operator== defined.
   for (int i = 0; i < kNDof; ++i) {
-    EXPECT_EQ(zero.x(), vector2->Get(i).x());
-    EXPECT_EQ(zero.y(), vector2->Get(i).y());
-    EXPECT_EQ(zero.z(), vector2->Get(i).z());
+    EXPECT_THAT(vector2->Get(i), PointEq(zero));
   }
   auto result = CopyFbsVector(*vector, *vector2);
   EXPECT_EQ(result.code, intrinsic::StatusCode::kOk) << ToString(result);
   for (int i = 0; i < kNDof; ++i) {
-    EXPECT_EQ(one.x(), vector2->Get(i).x());
-    EXPECT_EQ(one.y(), vector2->Get(i).y());
-    EXPECT_EQ(one.z(), vector2->Get(i).z());
+    EXPECT_THAT(vector2->Get(i), PointEq(one));
   }
 }
 

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  bazel-build-and-test:
+    name: Bazel Build & Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Bazel Tests
+        run: bazel test //...
+
+  cmake-build-and-test:
+    name: CMake Build & Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            libeigen3-dev \
+            libflatbuffers-dev \
+            flatbuffers-compiler \
+            libgtest-dev \
+            libgmock-dev \
+            libexpected-dev
+
+      - name: Configure CMake
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+
+      - name: Build Targets
+        run: cmake --build build -j$(nproc)
+
+      - name: Run CTest
+        run: ctest --test-dir build --output-on-failure
+
+  check-cmake-drift:
+    name: Check CMake Generation Drift
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run bazel_to_cmake.py
+        run: python3 bazel_to_cmake.py
+
+      - name: Verify No Drift
+        run: git diff --exit-code targets.cmake CMakeLists.txt

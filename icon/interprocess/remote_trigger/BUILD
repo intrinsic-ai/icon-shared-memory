@@ -13,10 +13,10 @@
 # limitations under the License.
 
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
-load("//bazel:cc_macros.bzl", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 
 package(default_visibility = [
-    "//incode/icon/no_absl:__subpackages__",
+    "//visibility:public",
 ])
 
 cc_library(

@@ -1,3 +1,17 @@
+# Copyright 2026 Intrinsic Innovation LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #!/usr/bin/env python3
 
 # Copyright 2026 Intrinsic Innovation LLC
@@ -154,18 +168,28 @@ EXTERNAL_FBS_TARGET_NAME = "icon_shared_memory_external_fbs_cc"
 def main():
   script_dir = os.path.dirname(os.path.abspath(__file__))
   no_absl_root = script_dir
-  bazel_workspace_root = no_absl_root + "/../../.."
+  if os.path.exists(os.path.join(no_absl_root, "MODULE.bazel")):
+    bazel_workspace_root = no_absl_root
+    is_standalone = True
+  else:
+    bazel_workspace_root = os.path.abspath(no_absl_root + "/../../..")
+    is_standalone = False
+
   package_name_prefix = get_package_name_prefix(
       no_absl_root, bazel_workspace_root
   )
 
-  handle_google3_flatbuffers(no_absl_root, package_name_prefix)
+  if not is_standalone:
+    handle_google3_flatbuffers(no_absl_root, package_name_prefix)
 
   deps_map_path = os.path.join(no_absl_root, "dependencies.json")
   external_dependency_map = load_dependency_map(deps_map_path)
 
   sorted_targets = find_bazel_targets(
-      package_name_prefix, bazel_workspace_root, no_absl_root
+      package_name_prefix, bazel_workspace_root, no_absl_root, is_standalone
+  )
+  sorted_targets = topological_sort_targets(
+      sorted_targets, package_name_prefix, external_dependency_map
   )
 
   # Generate one big CMake file with ALL THE TARGETS
@@ -179,37 +203,12 @@ def main():
 
 
 def handle_google3_flatbuffers(bazel_start_dir, package_name_prefix):
-  """Creates a Copybara and CMake files for flatbuffer deps from outside of `bazel_start_dir`.
-
-  In particular, this function creates:
-
-  * bazel_start_dir/flatbuffer_files.bara.sky
-
-    This file contains a list of all flatbuffer definition files outside of
-    `bazel_start_dir` that the targets *within* `bazel_start_dir` depend on.
-
-    The main `copy.bara.sky` file uses that list to copy those files into the
-    `flatbuffer_definitions` directory in the export.
-
-  * bazel_start_dir/flatbuffer_definitions/targets.cmake
-
-    This file has CMake rules to
-
-    * create C++ headers for each flatbuffer source
-    * install those headers (using a single target for **all** headers, so that
-      any dependencies between flatbuffer headers are satisfied)
+  """Creates flatbuffer_files.bara.sky for flatbuffer deps from outside of `bazel_start_dir`.
 
   Args:
-    bazel_start_dir: The root directory that we want ot export from
-    package_name_prefix:
-      All bazel targets in `bazel_start_dir` share this prefix.
-      Hence, we can select all targets in `bazel_start_dir` with the bazel query
-      `package_name_prefix + '/...'`.
+    bazel_start_dir: The root directory that we want to export from
+    package_name_prefix: All bazel targets in `bazel_start_dir` share this prefix.
   """
-  # This command writes (to stdout) the paths of all .fbs files from //google3
-  # that the targets in //incode/icon/no_absl depend on.
-  #
-  # N.B. these paths are relative to the workspace root
   bazel_cmd = [
       "bazel",
       "cquery",
@@ -235,123 +234,20 @@ def handle_google3_flatbuffers(bazel_start_dir, package_name_prefix):
       if p
   ]
 
+  # Ensure flatbuffers.bzl is always exported to provide Starlark macros for Bazel
+  if "flatbuffer_definitions/platform/flatbuffers.bzl" not in fbs_file_paths:
+    fbs_file_paths.append("flatbuffer_definitions/platform/flatbuffers.bzl")
+
   # Drop the flatbuffer paths into flatbuffer_files.bara.sky
   flatbuffer_files_bara_sky_contents = ["FLATBUFFER_FILES = ["]
   flatbuffer_files_bara_sky_contents.extend(
-      [f'    "{path}",' for path in fbs_file_paths]
+      [f'    "{path}",' for path in sorted(fbs_file_paths)]
   )
   flatbuffer_files_bara_sky_contents.append("]")
   bara_sky_path = os.path.join(bazel_start_dir, "flatbuffer_files.bara.sky")
   print(f"Writing {bara_sky_path}...")
   with open(bara_sky_path, "w", encoding="utf-8") as out:
     out.write("\n".join(flatbuffer_files_bara_sky_contents) + "\n")
-
-  # Create flatbuffer_definitions/targets.cmake, with a *single* target that
-  # converts *all* flatbuffer messages to headers.
-  # This saves us the trouble of keeping track of dependency hierarchies between
-  # flatbuffer definitions.
-  fbs_cmake_lines = [
-      "find_package(FlatBuffers REQUIRED)",
-      "find_program(FLATC_EXECUTABLE flatc REQUIRED)",
-      "",
-      "if(NOT INSRC_ROOT)",
-      (
-          "  get_filename_component(INSRC_ROOT"
-          ' "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)'
-      ),
-      "endif()",
-      "",
-  ]
-
-  fbs_header_paths = []
-  for fbs_file in fbs_file_paths:
-    rel_fbs_path = fbs_file.removeprefix("flatbuffer_definitions/")
-    pkg_path = os.path.dirname(rel_fbs_path)
-    schema_name = os.path.basename(rel_fbs_path).removesuffix(".fbs")
-
-    target_name = f"{schema_name}_fbs_cc"
-    out_header = (
-        f"${{CMAKE_CURRENT_BINARY_DIR}}/flatbuffer_definitions/{rel_fbs_path}.h"
-    )
-
-    # We need one invocation of `flatc` per flatbuffer definition, because
-    # otherwise all of the headers would end up in the top-level
-    # `flatbuffer_definitions` directory...
-    fbs_cmake_lines.extend([
-        "add_custom_command(",
-        f'  OUTPUT "{out_header}"',
-        (
-            '  COMMAND "${FLATC_EXECUTABLE}" --cpp --filename-suffix .fbs'
-            # This ensures that the generated headers are in one consistent
-            # place.
-            " --include-prefix flatbuffer_definitions"
-            " --keep-prefix"
-            # These options match the settings that the internal bazel build
-            # uses.
-            " --reflect-names"
-            " --scoped-enums"
-            " --gen-mutable"
-            " --filename-ext h"
-        ),
-        (
-            "          -o"
-            f' "${{CMAKE_CURRENT_BINARY_DIR}}/flatbuffer_definitions/{pkg_path}"'
-        ),
-        # This makes all other flatbuffer definition files visible to flatc
-        '          -I "${CMAKE_CURRENT_LIST_DIR}/.."',
-        f'          "${{CMAKE_CURRENT_LIST_DIR}}/{rel_fbs_path}"',
-        f'  DEPENDS "${{CMAKE_CURRENT_LIST_DIR}}/{rel_fbs_path}"',
-        f'  COMMENT "Generating C++ Flatbuffers headers for {schema_name}.fbs"',
-        ")",
-        f"add_library({target_name} INTERFACE)",
-        f"target_include_directories({target_name} INTERFACE",
-        '  "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>"',
-        '  "$<INSTALL_INTERFACE:include>"',
-        ")",
-        f"target_sources({target_name} PRIVATE",
-        f'  "{out_header}"',
-        ")",
-        f"target_link_libraries({target_name} INTERFACE",
-        "  flatbuffers::flatbuffers",
-        ")",
-        f"install(TARGETS {target_name} EXPORT icon_shared_memoryTargets)",
-        f'install(FILES "{out_header}"',
-        f'        DESTINATION "include/flatbuffer_definitions/{pkg_path}"',
-        ")",
-        "",
-    ])
-    fbs_header_paths.append(out_header)
-
-  # Finally, add the single library target that contains all flatbuffer headers
-  fbs_cmake_lines.extend([
-      f"add_library({EXTERNAL_FBS_TARGET_NAME} INTERFACE)",
-      f"target_include_directories({EXTERNAL_FBS_TARGET_NAME} INTERFACE",
-      '  "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>"',
-      '  "$<INSTALL_INTERFACE:include>"',
-      ")",
-      f"target_sources({EXTERNAL_FBS_TARGET_NAME} PRIVATE",
-  ])
-
-  fbs_cmake_lines.extend(
-      [f"    {fbs_header}" for fbs_header in fbs_header_paths]
-  )
-  fbs_cmake_lines.extend([
-      ")",
-      f"target_link_libraries({EXTERNAL_FBS_TARGET_NAME} INTERFACE",
-      "  flatbuffers::flatbuffers",
-      ")",
-      (
-          f"install(TARGETS {EXTERNAL_FBS_TARGET_NAME} EXPORT"
-          " icon_shared_memoryTargets)"
-      ),
-  ])
-
-  flatbuffers_dir = os.path.join(bazel_start_dir, "flatbuffer_definitions")
-  os.makedirs(flatbuffers_dir, exist_ok=True)
-  fbs_cmake_path = os.path.join(flatbuffers_dir, "targets.cmake")
-  print(f"Writing {fbs_cmake_path}...")
-  with open(fbs_cmake_path, "w", encoding="utf-8") as out:
-    out.write("\n".join(fbs_cmake_lines))
 
 
 def load_dependency_map(dependency_map_path) -> dict[str, DependencyMapping]:
@@ -382,6 +278,8 @@ def get_package_name_prefix(bazel_start_dir, bazel_workspace_root_dir):
 
   The return value does NOT have a final '/' character.
   """
+  if os.path.abspath(bazel_start_dir) == os.path.abspath(bazel_workspace_root_dir):
+    return ""
 
   relative_start_dir = os.path.relpath(
       path=bazel_start_dir, start=bazel_workspace_root_dir
@@ -396,7 +294,10 @@ def get_package_name_prefix(bazel_start_dir, bazel_workspace_root_dir):
 
 
 def find_bazel_targets(
-    package_name_prefix, bazel_workspace_root, bazel_start_dir
+    package_name_prefix,
+    bazel_workspace_root,
+    bazel_start_dir,
+    is_standalone: bool = False,
 ) -> list[BazelTarget]:
   """Uses bazel query to find and convert all targets we want to convert, in reverse topological order.
 
@@ -412,6 +313,14 @@ def find_bazel_targets(
   """
   # This command writes (to stdout) the canonical target paths of all targets
   # of the above kinds.
+  if is_standalone:
+    query_scope = "//..."
+  else:
+    query_scope = (
+        f"deps({package_name_prefix}/...) intersect"
+        f" ({package_name_prefix}/... union //flatbuffer_definitions/...)"
+    )
+
   bazel_cmd = [
       "bazel",
       "query",
@@ -420,7 +329,7 @@ def find_bazel_targets(
       "--order_output",
       "deps",
       (
-          f"""kind('(cc_library|cc_binary|cc_test|flatbuffers_library|cc_flatbuffers_library) rule', '{package_name_prefix}/...')"""
+          f"kind('(cc_library|cc_binary|cc_test|flatbuffers_library|cc_flatbuffers_library) rule', {query_scope})"
       ),
   ]
   try:
@@ -475,14 +384,15 @@ def find_bazel_targets(
     )
 
   def label_to_filename(label):
-    # * Strip the leading '//'
+    # * Strip the leading '//' or '@//'
     # * Replace the ':' at the end with a slash
     # * Join the result with the workspace root
-    #
-    # Example label:
-    # //icon/interprocess/shared_memory_manager/testing:unique_segment_name.cc
+    clean_label = label.removeprefix("@//").removeprefix("//")
+    if clean_label.startswith("flatbuffer_definitions/"):
+      rel = clean_label.removeprefix("flatbuffer_definitions/").replace(":", "/")
+      return f"flatbuffer_definitions/{rel}"
     return os.path.relpath(
-        os.path.join(bazel_workspace_root, label[2:].replace(":", "/")),
+        os.path.join(bazel_workspace_root, clean_label.replace(":", "/")),
         bazel_start_dir,
     )
 
@@ -542,12 +452,26 @@ def find_bazel_targets(
 
     # Check that all source and header files actually exist
     for source in sources:
-      if not os.path.exists(source):
+      if source.startswith("flatbuffer_definitions/") and not is_standalone:
+        rel = source.removeprefix("flatbuffer_definitions/")
+        exists = os.path.exists(
+            os.path.join(bazel_workspace_root, "google3/intrinsic", rel)
+        )
+      else:
+        exists = os.path.exists(os.path.join(bazel_start_dir, source))
+      if not exists:
         raise ValueError(
             f"{target_type}({label}): Source file {source} does not exist"
         )
     for header in headers:
-      if not os.path.exists(header):
+      if header.startswith("flatbuffer_definitions/") and not is_standalone:
+        rel = header.removeprefix("flatbuffer_definitions/")
+        exists = os.path.exists(
+            os.path.join(bazel_workspace_root, "google3/intrinsic", rel)
+        )
+      else:
+        exists = os.path.exists(os.path.join(bazel_start_dir, header))
+      if not exists:
         raise ValueError(
             f"{target_type}({label}): Header file {header} does not exist"
         )
@@ -594,33 +518,47 @@ def canonicalize_bazel_label(package_path, label, package_name_prefix):
     - '//icon/utils' -> '//icon/utils:utils'
     - '//google3/foo:bar' -> '//google3/foo:bar'
   """
-  if label.startswith(package_name_prefix):
+  clean_label = label.removeprefix("@//")
+  if clean_label.startswith(package_name_prefix) if package_name_prefix else clean_label.startswith("//"):
     # Label is qualified and inside the directory we're exporting, but may omit
     # the target name if it matches the package name
-    parts = label.split(":")
+    parts = clean_label.split(":")
     if len(parts) == 2:
-      return label
-    target_name = label.split("/")[-1]
-    return f"{label}:{target_name}"
-  if label.startswith("//") or label.startswith("@"):
+      return clean_label
+    target_name = clean_label.split("/")[-1]
+    return f"{clean_label}:{target_name}"
+  if clean_label.startswith("//") or clean_label.startswith("@"):
     # Label is fully qualified but outside the directory we're exporting. Leave
     # unchanged so that `dependencies.json` substitutions work.
-    return label
-  if label.startswith(":"):
+    return clean_label
+  if clean_label.startswith(":"):
     # Local label reference, add package_name_prefix and package path
     if package_path:
-      return f"{package_name_prefix}/{package_path}{label}"
-    return f"{package_name_prefix}{label}"
+      prefix = f"{package_name_prefix}/" if package_name_prefix else "//"
+      return f"{prefix}{package_path}{clean_label}"
+    prefix = package_name_prefix if package_name_prefix else "//"
+    return f"{prefix}{clean_label}"
 
   # Local label name, add package_name_prefix and package path, **and** add
   # colon before the label.
   if package_path:
-    return f"{package_name_prefix}/{package_path}:{label}"
-  return f"{package_name_prefix}:{label}"
+    prefix = f"{package_name_prefix}/" if package_name_prefix else "//"
+    return f"{prefix}{package_path}:{clean_label}"
+  prefix = package_name_prefix if package_name_prefix else "//"
+  return f"{prefix}:{clean_label}"
 
 
 def label_to_package_name(label: str, package_name_prefix: str):
-  parts = label.removeprefix(package_name_prefix).lstrip("/").split(":")
+  clean_label = label.removeprefix("@//")
+  if clean_label.startswith("//flatbuffer_definitions/"):
+    rel = clean_label.removeprefix("//flatbuffer_definitions/")
+    pkg = rel.split(":")[0]
+    return f"flatbuffer_definitions/{pkg}"
+  if clean_label.startswith("//flatbuffer_definitions/"):
+    rel = clean_label.removeprefix("//flatbuffer_definitions/")
+    pkg = rel.split(":")[0]
+    return f"flatbuffer_definitions/{pkg}"
+  parts = clean_label.removeprefix(package_name_prefix).lstrip("/").split(":")
   return parts[0]
 
 
@@ -639,18 +577,32 @@ def label_to_cmake_target(
       If target_name is identical to the last package path component, simplify to
       'icon_shared_memory_<pkg_path_underscores>'.
   """
+  clean_label = canonical_label.removeprefix("@//")
+  if clean_label in external_dependency_map:
+    cmake_target = external_dependency_map[clean_label].target_name
+    return cmake_target
   if canonical_label in external_dependency_map:
     cmake_target = external_dependency_map[canonical_label].target_name
     return cmake_target
-  if canonical_label.startswith(
-      "//flatbuffer_definitions/"
-  ) and canonical_label.endswith("_fbs_cc"):
-    # All external flatbuffers become one big library target (see
-    # `handle_google3_flatbuffers()`)
-    return EXTERNAL_FBS_TARGET_NAME
-  if canonical_label.startswith(package_name_prefix):
+  if clean_label.startswith("//flatbuffer_definitions/"):
+    rel = clean_label.removeprefix("//flatbuffer_definitions/")
+    package, target = rel.split(":")
+    pkg_underscores = package.replace("/", "_")
+    last_comp = package.split("/")[-1]
+    if target == last_comp:
+      return f"icon_shared_memory_{pkg_underscores}"
+    return f"icon_shared_memory_{pkg_underscores}_{target}"
+  if clean_label.startswith("//flatbuffer_definitions/"):
+    rel = clean_label.removeprefix("//flatbuffer_definitions/")
+    package, target = rel.split(":")
+    pkg_underscores = package.replace("/", "_")
+    last_comp = package.split("/")[-1]
+    if target == last_comp:
+      return f"icon_shared_memory_{pkg_underscores}"
+    return f"icon_shared_memory_{pkg_underscores}_{target}"
+  if clean_label.startswith(package_name_prefix):
     parts = (
-        canonical_label.removeprefix(package_name_prefix).lstrip("/").split(":")
+        clean_label.removeprefix(package_name_prefix).lstrip("/").split(":")
     )
     package = parts[0]
     target = parts[1]
@@ -662,8 +614,61 @@ def label_to_cmake_target(
       return f"icon_shared_memory_{package_underscores}_{target}"
   else:
     raise ValueError(
-        f"External target {canonical_label} is not mapped in dependencies.json!"
+        f"External target {clean_label} is not mapped in dependencies.json!"
     )
+
+
+def topological_sort_targets(
+    targets: list[BazelTarget],
+    package_name_prefix: str,
+    dependency_map: dict[str, DependencyMapping],
+) -> list[BazelTarget]:
+  """Sorts targets in topological dependency order with deterministic alphabetical tie-breaking."""
+  target_map = {t.label: t for t in targets}
+  target_name_map = {}
+  for t in targets:
+    name = label_to_cmake_target(t.label, package_name_prefix, dependency_map)
+    if name:
+      target_name_map[t.label] = name
+
+  deps_map = {t.label: set() for t in targets}
+  dependents_map = {t.label: set() for t in targets}
+
+  for t in targets:
+    for d in t.deps:
+      if d in target_map and d != t.label:
+        deps_map[t.label].add(d)
+        dependents_map[d].add(t.label)
+
+  in_degree = {label: len(deps) for label, deps in deps_map.items()}
+  ready = sorted(
+      [label for label, deg in in_degree.items() if deg == 0],
+      key=lambda l: target_name_map.get(l, l),
+  )
+
+  result = []
+  while ready:
+    curr_label = ready.pop(0)
+    result.append(target_map[curr_label])
+    for dependent in sorted(
+        dependents_map[curr_label], key=lambda l: target_name_map.get(l, l)
+    ):
+      in_degree[dependent] -= 1
+      if in_degree[dependent] == 0:
+        dep_key = target_name_map.get(dependent, dependent)
+        bisect_idx = 0
+        while bisect_idx < len(ready) and target_name_map.get(
+            ready[bisect_idx], ready[bisect_idx]
+        ) < dep_key:
+          bisect_idx += 1
+        ready.insert(bisect_idx, dependent)
+
+  if len(result) != len(targets):
+    for t in targets:
+      if t not in result:
+        result.append(t)
+
+  return result
 
 
 def generate_cmake_targets_file_for_workspace(
@@ -682,7 +687,7 @@ def generate_cmake_targets_file_for_workspace(
   """
   cmake_lines = []
   cmake_lines.append(
-      f"# Automatically generated from BUILD files in {bazel_start_dir}"
+      "# Automatically generated from BUILD files by bazel_to_cmake.py"
   )
   cmake_lines.append("")
 
@@ -714,7 +719,12 @@ def generate_cmake_targets_file_for_workspace(
 
     package_name = label_to_package_name(target.label, package_name_prefix)
     # Destination directory path for header installation
-    install_dest = f"include/{package_name}".rstrip("/")
+    if package_name.startswith("flatbuffer_definitions/"):
+      install_dest = f"include/{package_name}".rstrip("/")
+    elif package_name_prefix:
+      install_dest = f"include/{package_name}".rstrip("/")
+    else:
+      install_dest = f"include/{package_name}".rstrip("/")
 
     cpp_extensions = (".cc", ".cpp", ".c", ".cxx", ".C")
 
@@ -936,11 +946,6 @@ def generate_root_cmake_file(bazel_start_dir, external_dependency_map):
     root_cmake_lines.append(f"find_package({package_name} REQUIRED)")
 
   root_cmake_lines.append("find_program(FLATC_EXECUTABLE flatc REQUIRED)")
-
-  root_cmake_lines.extend([
-      "include(",
-      '  "${CMAKE_CURRENT_SOURCE_DIR}/flatbuffer_definitions/targets.cmake")',
-  ])
 
   root_cmake_lines.extend([
       "",
