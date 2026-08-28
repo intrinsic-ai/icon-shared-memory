@@ -1,22 +1,18 @@
 # icon-shared-memory
 
-`icon-shared-memory` provides the shared-memory interprocess communication (IPC) layer, real-time data structures, and utilities used by Intrinsic's Real-Time Control Framework (**ICON**).
+`icon-shared-memory` provides the shared-memory inter-process communication (IPC) layer, real-time data structures, and utilities used by [Intrinsic](https://www.intrinsic.ai/)'s Real-Time Control Framework (**ICON**).
 
-This library provides lock-free and low-latency communication primitives (such as shared memory lockstep synchronization, binary futexes, and real-time buffers) designed for high-frequency robotic control loops and hardware abstraction layers.
-
-## Related Repositories
-
-- **[icon-hwm-controller](https://github.com/intrinsic-ai/icon-hwm-controller)**: A Hardware Module (HWM) controller implementation that leverages `icon-shared-memory` to interface real-time hardware control loops with the `ros2_control` framework.
+This library provides lock-free and low-latency inter-process communication primitives (such as shared memory lockstep synchronization, binary futexes, and real-time buffers) designed for high-frequency robotic control loops and hardware abstraction layers.
 
 ---
 
 ## Repository Contents
 
 - `eigenmath/`: Math and geometry utilities interoperable with Eigen.
-- `flatbuffer_definitions/`: FlatBuffers schema definitions and CMake generation targets.
+- `flatbuffer_definitions/`: [FlatBuffers](https://flatbuffers.dev/) schema definitions and CMake generation targets.
 - `icon/`: Core ICON shared-memory communication, HAL interfaces, hardware module runtime, and real-time utilities.
   - `icon/control/`: Real-time clock interfaces.
-  - `icon/flatbuffers/`: FlatBuffers serialization utilities and schema headers.
+  - `icon/flatbuffers/`: [FlatBuffers](https://flatbuffers.dev/) serialization utilities and schema headers.
   - `icon/hal/`: Hardware interface registries, traits, hardware module lifecycle utilities, and clock interfaces.
   - `icon/interprocess/`: Shared memory manager, binary futexes, and remote trigger server/client.
   - `icon/testing/`: Test fixtures, real-time annotations, and allocation assertion helpers.
@@ -75,12 +71,12 @@ The CMake build files (`CMakeLists.txt` and the various `targets.cmake` files ac
 #### Prerequisites
 
 Ensure the following dependencies and tools are installed on your system:
-- **C++20 Compiler** (Clang >= 13 or GCC >= 11)
-- **CMake** (>= 3.19)
-- **Eigen3**
-- **FlatBuffers** (including the `flatc` compiler executable and development headers)
-- **GoogleTest** (`GTest` / `GMock`)
-- **tl-expected**
+- **C++20 Compiler** ([Clang](https://clang.llvm.org/get_started.html) >= 13 or [GCC](https://gcc.gnu.org/install/download.html) >= 11)
+- [**CMake**](https://cmake.org/download/) (>= 3.19)
+- [**Eigen3**](https://libeigen.gitlab.io/releases/)
+- [**FlatBuffers**](https://github.com/google/flatbuffers#quick-start) (including the `flatc` compiler executable and development headers)
+- [**GoogleTest**](https://github.com/google/googletest) (`GTest` / `GMock`)
+- [**tl-expected**](https://github.com/TartanLlama/expected): C++17 implementation of the C++23 feature [`std::expected`](https://en.cppreference.com/cpp/utility/expected).
 
 On Debian/Ubuntu systems, prerequisites can typically be installed via:
 ```bash
@@ -140,4 +136,10 @@ python3 bazel_to_cmake.py
 ```
 
 If a change in Bazel targets does not produce the expected CMake configuration (such as newly introduced external dependencies or custom build rules), update [`dependencies.json`](dependencies.json) or [`bazel_to_cmake.py`](bazel_to_cmake.py) accordingly to support the new translation.
+
+---
+
+## Related Repositories
+
+- **[icon-hwm-controller](https://github.com/intrinsic-ai/icon-hwm-controller)**: A Hardware Module (HWM) controller implementation that leverages `icon-shared-memory` to interface real-time hardware control loops with the `ros2_control` framework.
 
