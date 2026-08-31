@@ -129,6 +129,7 @@ make -j4  # or however many cores you want to use
 """
 
 from dataclasses import dataclass
+import graphlib
 import json
 import os
 import subprocess
@@ -165,7 +166,7 @@ class DependencyMapping:
 EXTERNAL_FBS_TARGET_NAME = "icon_shared_memory_external_fbs_cc"
 
 
-def main():
+def main() -> None:
   script_dir = os.path.dirname(os.path.abspath(__file__))
   no_absl_root = script_dir
   if os.path.exists(os.path.join(no_absl_root, "MODULE.bazel")):
@@ -202,7 +203,9 @@ def main():
   generate_root_cmake_file(no_absl_root, external_dependency_map)
 
 
-def handle_google3_flatbuffers(bazel_start_dir, package_name_prefix):
+def handle_google3_flatbuffers(
+    bazel_start_dir: str, package_name_prefix: str
+) -> None:
   """Creates flatbuffer_files.bara.sky for flatbuffer deps from outside of `bazel_start_dir`.
 
   Args:
@@ -272,9 +275,10 @@ def load_dependency_map(dependency_map_path) -> dict[str, DependencyMapping]:
     }
 
 
-def get_package_name_prefix(bazel_start_dir, bazel_workspace_root_dir):
-  """
-  Returns the common Bazel package name prefix for targets in `bazel_start_dir`, for a workspace rooted in `bazel_workspace_root_dir`.
+def get_package_name_prefix(
+    bazel_start_dir: str, bazel_workspace_root_dir: str
+) -> str:
+  """Returns the common Bazel package name prefix for targets in `bazel_start_dir`, for a workspace rooted in `bazel_workspace_root_dir`.
 
   The return value does NOT have a final '/' character.
   """
@@ -294,9 +298,9 @@ def get_package_name_prefix(bazel_start_dir, bazel_workspace_root_dir):
 
 
 def find_bazel_targets(
-    package_name_prefix,
-    bazel_workspace_root,
-    bazel_start_dir,
+    package_name_prefix: str,
+    bazel_workspace_root: str,
+    bazel_start_dir: str,
     is_standalone: bool = False,
 ) -> list[BazelTarget]:
   """Uses bazel query to find and convert all targets we want to convert, in reverse topological order.
@@ -507,10 +511,10 @@ def find_bazel_targets(
   return list(reversed(targets))
 
 
-def canonicalize_bazel_label(package_path, label, package_name_prefix):
-  """
-  Converts a Bazel label to its fully-qualified canonical form relative to the
-  workspace root.
+def canonicalize_bazel_label(
+    package_path: str, label: str, package_name_prefix: str
+) -> str:
+  """Converts a Bazel label to its fully-qualified canonical form relative to the workspace root.
 
   Examples:
     - ':status' under 'icon/utils' -> '//icon/utils:status'
@@ -548,7 +552,8 @@ def canonicalize_bazel_label(package_path, label, package_name_prefix):
   return f"{prefix}:{clean_label}"
 
 
-def label_to_package_name(label: str, package_name_prefix: str):
+def label_to_package_name(label: str, package_name_prefix: str) -> str:
+  """Extracts the package directory path from a canonical Bazel label."""
   clean_label = label.removeprefix("@//")
   if clean_label.startswith("//flatbuffer_definitions/"):
     rel = clean_label.removeprefix("//flatbuffer_definitions/")
@@ -567,8 +572,7 @@ def label_to_cmake_target(
     package_name_prefix: str,
     external_dependency_map: dict[str, DependencyMapping],
 ) -> str:
-  """
-  Translates a canonical Bazel label to the corresponding CMake target name.
+  """Translates a canonical Bazel label to the corresponding CMake target name.
 
   Rules:
     - If the label is mapped in dependencies.json, return the mapped target name.
@@ -631,37 +635,25 @@ def topological_sort_targets(
     if name:
       target_name_map[t.label] = name
 
-  deps_map = {t.label: set() for t in targets}
-  dependents_map = {t.label: set() for t in targets}
-
+  # Build dependency graph: target -> internal targets that target depends on
+  graph = {}
   for t in targets:
-    for d in t.deps:
-      if d in target_map and d != t.label:
-        deps_map[t.label].add(d)
-        dependents_map[d].add(t.label)
+    graph[t.label] = {d for d in t.deps if d in target_map and d != t.label}
 
-  in_degree = {label: len(deps) for label, deps in deps_map.items()}
-  ready = sorted(
-      [label for label, deg in in_degree.items() if deg == 0],
-      key=lambda l: target_name_map.get(l, l),
-  )
+  ts = graphlib.TopologicalSorter(graph)
+  ts.prepare()
 
   result = []
-  while ready:
-    curr_label = ready.pop(0)
-    result.append(target_map[curr_label])
-    for dependent in sorted(
-        dependents_map[curr_label], key=lambda l: target_name_map.get(l, l)
-    ):
-      in_degree[dependent] -= 1
-      if in_degree[dependent] == 0:
-        dep_key = target_name_map.get(dependent, dependent)
-        bisect_idx = 0
-        while bisect_idx < len(ready) and target_name_map.get(
-            ready[bisect_idx], ready[bisect_idx]
-        ) < dep_key:
-          bisect_idx += 1
-        ready.insert(bisect_idx, dependent)
+  ready_pool = []
+  while ts.is_active():
+    for node in ts.get_ready():
+      ready_pool.append(node)
+    ready_pool.sort(key=lambda l: target_name_map.get(l, l))
+    if not ready_pool:
+      break
+    curr = ready_pool.pop(0)
+    result.append(target_map[curr])
+    ts.done(curr)
 
   if len(result) != len(targets):
     for t in targets:
@@ -676,7 +668,7 @@ def generate_cmake_targets_file_for_workspace(
     targets: list[BazelTarget],
     bazel_start_dir: str,
     dependency_map: dict[str, DependencyMapping],
-):
+) -> None:
   """Generates `targets.cmake` for the entire workspace.
 
   The generated file contains CMake targets for each supported bazel target, in
@@ -910,7 +902,10 @@ def generate_cmake_targets_file_for_workspace(
     out.write("\n".join(cmake_lines))
 
 
-def generate_root_cmake_file(bazel_start_dir, external_dependency_map):
+def generate_root_cmake_file(
+    bazel_start_dir: str,
+    external_dependency_map: dict[str, DependencyMapping],
+) -> None:
   """Generates the root CMakeLists.txt file.
 
   This file includes the `targets.cmake` files for each subdirectory ("package")
@@ -948,6 +943,9 @@ def generate_root_cmake_file(bazel_start_dir, external_dependency_map):
   root_cmake_lines.append("find_program(FLATC_EXECUTABLE flatc REQUIRED)")
 
   root_cmake_lines.extend([
+      "",
+      "# Standard link libraries for threading/atomics support across compilers (e.g. Clang)",
+      "link_libraries(atomic)",
       "",
       "enable_testing()",
       "include(GoogleTest)",

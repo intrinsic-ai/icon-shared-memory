@@ -56,6 +56,7 @@ FlatBuffersInfo, _ = provider(
 )
 
 def _create_flatbuffers_info(*, srcs, schemas, deps = None):
+    """Creates a FlatBuffersInfo provider instance merging direct and transitive schemas and sources."""
     deps = deps or []
     return FlatBuffersInfo(
         direct_schemas = schemas,
@@ -71,6 +72,7 @@ def _create_flatbuffers_info(*, srcs, schemas, deps = None):
     )
 
 def _merge_flatbuffers_infos(infos):
+    """Merges a list of FlatBuffersInfo providers into a single FlatBuffersInfo provider."""
     return FlatBuffersInfo(
         direct_sources = [src for info in infos for src in info.direct_sources],
         transitive_schemas = depset(
@@ -82,6 +84,7 @@ def _merge_flatbuffers_infos(infos):
     )
 
 def _init_flatbuffers_binary_info(*, src, deps = []):
+    """Initializes FlatBuffersBinaryInfo provider data."""
     return {
         "schema": _merge_flatbuffers_infos([dep[FlatBuffersInfo] for dep in deps]),
         "src": src,
@@ -491,7 +494,6 @@ Where `foo_user.h` would include the generated code via: `#include "path/to/proj
 ```""",
 )
 
-# TODO : Remove after folders moved
 def cc_lite_flatbuffers_library(name, deps, **kwargs):
     _cc_lite_flatbuffers_library(
         name = name + "_internal",

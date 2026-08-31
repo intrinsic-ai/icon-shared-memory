@@ -2,6 +2,9 @@
 common --enable_bzlmod
 build --cxxopt=-std=c++20
 build --host_cxxopt=-std=c++20
+build --linkopt=-latomic
 
-# Unix domain socket tests require short socket path (<108 bytes)
-test --test_tmpdir=/tmp
+# CI test configuration
+test:ci --test_tmpdir=/tmp
+test:ci --test_output=errors
+test:ci --keep_going

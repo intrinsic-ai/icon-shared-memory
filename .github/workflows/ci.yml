@@ -1,29 +1,67 @@
-name: CI
+name: Continuous Integration
 
 on:
   push:
-    branches: [ main ]
+    branches: ["main"]
   pull_request:
-    branches: [ main ]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   bazel-build-and-test:
-    name: Bazel Build & Test
+    name: Bazel (${{ matrix.compiler.c }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - { c: gcc, cxx: g++ }
+          - { c: clang, cxx: clang++ }
+    env:
+      CC: ${{ matrix.compiler.c }}
+      CXX: ${{ matrix.compiler.cxx }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install Clang
+        if: matrix.compiler.c == 'clang'
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Mount Bazel Disk Cache
+        uses: actions/cache@v6
+        with:
+          path: "~/.cache/bazel-disk-cache"
+          key: bazel-${{ runner.os }}-${{ matrix.compiler.c }}-${{ hashFiles('MODULE.bazel', 'WORKSPACE') }}
+          restore-keys: |
+            bazel-${{ runner.os }}-${{ matrix.compiler.c }}-
 
       - name: Run Bazel Tests
-        run: bazel test //...
+        run: bazel test --config=ci //... --disk_cache=~/.cache/bazel-disk-cache
 
   cmake-build-and-test:
-    name: CMake Build & Test
+    name: CMake (${{ matrix.compiler.c }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler:
+          - { c: gcc, cxx: g++ }
+          - { c: clang, cxx: clang++ }
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-cmake-${{ matrix.compiler.c }}
 
       - name: Install Dependencies
         run: |
@@ -31,6 +69,7 @@ jobs:
           sudo apt-get install -y \
             build-essential \
             cmake \
+            clang \
             libeigen3-dev \
             libflatbuffers-dev \
             flatbuffers-compiler \
@@ -39,7 +78,15 @@ jobs:
             libexpected-dev
 
       - name: Configure CMake
-        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        env:
+          CC: ${{ matrix.compiler.c }}
+          CXX: ${{ matrix.compiler.cxx }}
+        run: >
+          cmake -B build -S .
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 
       - name: Build Targets
         run: cmake --build build -j$(nproc)
@@ -52,10 +99,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 

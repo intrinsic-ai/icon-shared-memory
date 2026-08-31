@@ -17,6 +17,9 @@ find_package(GTest REQUIRED)
 find_package(tl-expected REQUIRED)
 find_program(FLATC_EXECUTABLE flatc REQUIRED)
 
+# Standard link libraries for threading/atomics support across compilers (e.g. Clang)
+link_libraries(atomic)
+
 enable_testing()
 include(GoogleTest)
 
