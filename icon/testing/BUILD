@@ -14,9 +14,9 @@
 
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
-load("//bazel:cc_macros.bzl", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 
-package(default_visibility = ["//incode/icon/no_absl:__subpackages__"])
+package(default_visibility = ["//visibility:public"])
 
 cc_library(
     name = "realtime_annotations",
@@ -31,7 +31,7 @@ bzl_library(
     srcs = ["cc_test_and_malloc_test.bzl"],
     deps = [
         "@bazel_skylib//lib:new_sets",
-        "@rules_cc//cc:core_rules",
+        "@rules_cc//cc:bzl_srcs",
     ],
 )
 

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//bazel:cc_macros.bzl", "cc_library", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("//flatbuffer_definitions/platform:flatbuffers.bzl", "cc_flatbuffers_library", "flatbuffers_library")
 
 package(default_visibility = [

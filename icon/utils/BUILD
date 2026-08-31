@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//bazel:cc_macros.bzl", "cc_library", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 load("//icon/testing:cc_test_and_malloc_test.bzl", "cc_test_and_malloc_test")
 
 package(default_visibility = [
-    "//incode/icon/no_absl:__subpackages__",
+    "//visibility:public",
 ])
 
 cc_library(

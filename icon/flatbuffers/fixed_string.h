@@ -125,7 +125,7 @@ struct ArraySize<::flatbuffers::Array<T, size_value>> {
 // - if the array has another field named "size" that is unsigned.
 template <typename T,
           typename ArrayType = std::remove_cvref_t<std::remove_pointer_t<
-              decltype(std::declval<T>().mutable_data())>>,
+              decltype(std::declval<T&>().mutable_data())>>,
           uint16_t MaxSize = internal::flatbuffers::ArraySize<ArrayType>::value>
   requires requires(T& obj) {
     requires std::is_convertible_v<decltype(obj.mutable_data()),
@@ -153,7 +153,7 @@ void StringCopy(T* destination, std::string_view source) {
 // - if the array has another field named "size" that is unsigned.
 template <typename T,
           typename ArrayType = std::remove_cvref_t<
-              std::remove_pointer_t<decltype(std::declval<T>().data())>>,
+              std::remove_pointer_t<decltype(std::declval<T&>().data())>>,
           uint16_t MaxSize = internal::flatbuffers::ArraySize<ArrayType>::value>
   requires requires(T& obj) {
     requires std::is_convertible_v<

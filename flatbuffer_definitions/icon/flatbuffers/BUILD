@@ -12,18 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Malloc test is not implemented externally, only invoke regular cc_test."""
+load("@rules_cc//cc:defs.bzl", "cc_library")
+load("//flatbuffer_definitions/platform:flatbuffers.bzl", "cc_flatbuffers_library", "flatbuffers_library")
 
-load("@rules_cc//cc:defs.bzl", "cc_test")
+package(default_visibility = ["//visibility:public"])
 
-def cc_test_and_malloc_test(name, deps = [], local_defines = [], tags = [], **kwargs):
-    cc_test(
-        name = name,
-        local_defines = local_defines,
-        tags = tags,
-        deps = deps + [
-            "@com_google_googletest//:gtest",
-            "@com_google_googletest//:gtest_main",
-        ],
-        **kwargs
-    )
+flatbuffers_library(
+    name = "transform_types_fbs",
+    srcs = ["transform_types.fbs"],
+)
+
+cc_flatbuffers_library(
+    name = "transform_types_fbs_cc",
+    deps = [":transform_types_fbs"],
+)

@@ -1,0 +1,10 @@
+# Enable Bzlmod and enforce C++20 standard
+common --enable_bzlmod
+build --cxxopt=-std=c++20
+build --host_cxxopt=-std=c++20
+build --linkopt=-latomic
+
+# CI test configuration
+test:ci --test_tmpdir=/tmp
+test:ci --test_output=errors
+test:ci --keep_going

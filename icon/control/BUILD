@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("//bazel:cc_macros.bzl", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 
 package(
     default_visibility = [
-        "//incode/icon/no_absl:__subpackages__",
+        "//visibility:public",
     ],
 )
 
@@ -25,7 +25,7 @@ cc_library(
     srcs = ["realtime_clock_interface.cc"],
     hdrs = ["realtime_clock_interface.h"],
     visibility = [
-        "//incode/icon/no_absl:__subpackages__",
+        "//visibility:public",
     ],
     deps = [
         "//icon/utils:status",
