@@ -150,7 +150,7 @@ If a change in Bazel targets does not produce the expected CMake configuration (
 ## Documentation and related repositories
 
 * [**Intrinsic Developer Community**](https://developer.intrinsic.ai): Complete guides, interactive tutorials, and API references.
-* [**icon-hwm-controller**](https://github.com/intrinsic-ai/icon-hwm-controller): A Hardware Module (HWM) controller implementation that leverages `icon-shared-memory` to interface real-time hardware control loops with the `ros2_control` framework.
+* [**icon-hwm-controller**](https://github.com/intrinsic-ai/icon-hwm-controller): An Intrinsic Hardware Module (HWM) for [`ros2_control`](https://control.ros.org/) hardware interfaces built on top of `icon-shared-memory`.
 
 ---
 
