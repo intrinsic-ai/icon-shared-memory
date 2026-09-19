@@ -143,3 +143,36 @@ If a change in Bazel targets does not produce the expected CMake configuration (
 
 - **[icon-hwm-controller](https://github.com/intrinsic-ai/icon-hwm-controller)**: A Hardware Module (HWM) controller implementation that leverages `icon-shared-memory` to interface real-time hardware control loops with the `ros2_control` framework.
 
+
+
+---
+
+## Documentation and related repositories
+
+* [**Intrinsic Developer Community**](https://developer.intrinsic.ai): Complete guides, interactive tutorials, and API references.
+* [**icon-hwm-controller**](https://github.com/intrinsic-ai/icon-hwm-controller): A Hardware Module (HWM) controller implementation that leverages `icon-shared-memory` to interface real-time hardware control loops with the `ros2_control` framework.
+
+---
+
+## Contributing and community
+
+Contributions are welcome! Please review:
+
+* [CONTRIBUTING.md](CONTRIBUTING.md): Details on signing the Google Contributor License Agreement (CLA), community guidelines, C++20 coding standards, and pull request workflows.  
+* [SECURITY.md](SECURITY.md): Instructions for reporting security vulnerabilities.
+
+---
+
+## License
+
+This project is licensed under the [Apache 2.0 License](LICENSE).
+
+---
+
+> **Disclaimer**: This is not an officially supported Google product.
+
+---
+
+### Trademark notice
+
+"Intrinsic" and "Intrinsic Core" are trademarks of Intrinsic Innovation LLC. See [TRADEMARK.md](TRADEMARK.md) for usage guidelines.
